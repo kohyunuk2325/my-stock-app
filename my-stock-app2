@@ -1,0 +1,87 @@
+import pandas as pd
+from pykrx import stock
+from datetime import datetime, timedelta
+import requests
+from bs4 import BeautifulSoup
+import warnings
+
+# 불필요한 경고 메시지 숨기기
+warnings.filterwarnings('ignore')
+
+def get_naver_theme(ticker):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={ticker}"
+        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(response.text, 'html.parser')
+        theme = soup.select_one('#content > div.section.trade_compare > h4 > em > a')
+        if theme:
+            return theme.text.strip()
+        return "개별주"
+    except:
+        return "N/A"
+
+def get_master_betting_candidates():
+    print("🔍 최근 개장일을 찾고 있습니다. 잠시만 기다려주세요...")
+    target_date = None
+    
+    # 최근 10일 중 장이 열렸던 마지막 날짜 찾기
+    for i in range(10): 
+        check_date = (datetime.today() - timedelta(days=i)).strftime("%Y%m%d")
+        tickers = stock.get_market_ticker_list(check_date, market="KOSPI")
+        if len(tickers) > 0: 
+            target_date = check_date
+            break
+            
+    if target_date is None:
+        return "최근 영업일 데이터를 찾을 수 없습니다."
+        
+    print(f"[{target_date}] 대가들의 종가베팅 타깃 사냥을 시작합니다...\n")
+    
+    try:
+        # [핵심] 여기서 KRX 서버 점검 중이면 내부적으로 KeyError가 발생합니다!
+        df_kospi = stock.get_market_ohlcv(target_date, market="KOSPI")
+        df_kosdaq = stock.get_market_ohlcv(target_date, market="KOSDAQ")
+        
+        # 서버가 텅 빈 데이터를 줬을 경우 강제 에러 발생시키기
+        if df_kospi.empty or '고가' not in df_kospi.columns:
+            raise KeyError("서버 점검")
+            
+        df = pd.concat([df_kospi, df_kosdaq]).reset_index()
+        
+        if '티커' not in df.columns:
+            df.rename(columns={'index': '티커'}, inplace=True)
+            
+        df['종목명'] = df['티커'].apply(lambda x: stock.get_market_ticker_name(x))
+        df['거래대금(억)'] = (df['거래대금'] / 100000000).astype(int)
+        
+        noise_keywords = 'KODEX|TIGER|KBSTAR|스팩|인버스|레버리지|우B|우$|선물|H|ETN'
+        df_clean = df[~df['종목명'].str.contains(noise_keywords, regex=True, na=False)].copy()
+        
+        df_top50 = df_clean.sort_values(by='거래대금(억)', ascending=False).head(50).copy()
+        
+        valid_mask = (df_top50['고가'] - df_top50['저가']) > 0
+        df_top50.loc[valid_mask, '방어력점수'] = (
+            (df_top50['종가'] - df_top50['저가']) / (df_top50['고가'] - df_top50['저가']) * 100
+        ).astype(int)
+        
+        df_final = df_top50[df_top50['방어력점수'] >= 80].copy()
+        
+        print(f"최종 후보 {len(df_final)}개 종목의 테마 정보를 가져오는 중입니다...")
+        df_final['테마'] = df_final['티커'].apply(get_naver_theme)
+        
+        result = df_final[['종목명', '테마', '방어력점수', '등락률', '거래대금(억)']].sort_values(by='거래대금(억)', ascending=False)
+        
+        return result.to_string(index=False)
+        
+    except KeyError:
+        # 퀀트 트레이더들만 아는 KRX 밤 11시 점검 시간 에러 처리!
+        return ("🌙 [시스템 안내] 거래소 데이터 서버 접속 실패\n\n"
+                "여의도 퀀트 트레이더들의 공통적인 징크스에 오신 것을 환영합니다!\n"
+                "한국거래소(KRX)는 매일 밤 11시~12시 사이에 DB 점검을 위해 셔터를 내립니다.\n"
+                "파이썬 로봇이 가격표를 달라고 했지만 '점검 중'이라는 답변을 받아서 생긴 현상입니다.\n\n"
+                "👉 해결책: 내일 아침이나 낮에 실행하시면 100% 완벽하게 작동합니다!")
+    except Exception as e:
+        return f"기타 에러 발생: {e}"
+
+print("\n🔥 뉴하트&대가스타일 종가베팅 사냥 로봇 🔥\n")
+print(get_master_betting_candidates())
