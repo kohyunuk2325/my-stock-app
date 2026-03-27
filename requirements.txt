@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+finance-datareader
+requests
+beautifulsoup4
+pandas
