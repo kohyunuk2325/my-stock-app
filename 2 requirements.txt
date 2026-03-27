@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pykrx
+requests
+beautifulsoup4
+pandas
