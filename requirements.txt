@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-finance-datareader
+pykrx
 requests
 beautifulsoup4
 pandas
