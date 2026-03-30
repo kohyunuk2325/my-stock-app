@@ -1,6 +1,5 @@
-fastapi
-uvicorn
-pykrx
+flask
+pandas
 requests
 beautifulsoup4
-pandas
+gunicorn
